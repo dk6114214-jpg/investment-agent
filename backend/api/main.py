@@ -5,12 +5,15 @@ import numpy as np
 import pandas as pd
 from fastapi import FastAPI, File, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 
 
 BASE_DIR = Path(__file__).resolve().parent
+PROJECT_DIR = BASE_DIR.parents[1]
 DEFAULT_MARKET_FILE = BASE_DIR / "psx_market.csv"
 DEFAULT_RESEARCH_FILE = BASE_DIR / "psx_research.csv"
+FRONTEND_BUILD_DIR = PROJECT_DIR / "frontend" / "web" / "build"
 
 DEFAULT_SECTORS = {
     "HBL": "Banking",
@@ -80,13 +83,26 @@ def startup() -> None:
     _load_default_data()
 
 
-@app.get("/")
-def home():
+def _status_payload():
     return {
         "status": "AI Investment Portfolio API is running",
         "market_rows": 0 if market_df is None else len(market_df),
         "research_rows": 0 if research_df is None else len(research_df),
     }
+
+
+@app.get("/api/health")
+def health():
+    return _status_payload()
+
+
+@app.get("/")
+def home():
+    index_file = FRONTEND_BUILD_DIR / "index.html"
+    if index_file.is_file():
+        return FileResponse(index_file)
+
+    return _status_payload()
 
 
 @app.post("/market/upload")
@@ -388,3 +404,17 @@ def recommend(user: InvestorProfile):
         "investment_amount": user.investment_amount,
         "portfolio": portfolio,
     }
+
+
+@app.get("/{full_path:path}")
+def serve_frontend(full_path: str):
+    requested_file = FRONTEND_BUILD_DIR / full_path
+    index_file = FRONTEND_BUILD_DIR / "index.html"
+
+    if requested_file.is_file():
+        return FileResponse(requested_file)
+
+    if index_file.is_file():
+        return FileResponse(index_file)
+
+    raise HTTPException(status_code=404, detail="Frontend build not found.")

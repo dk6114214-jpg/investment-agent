@@ -1,4 +1,9 @@
-const BASE_URL = (process.env.REACT_APP_API_BASE || "http://127.0.0.1:8000").replace(/\/$/, "");
+const defaultBaseUrl =
+  window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1"
+    ? "http://127.0.0.1:8000"
+    : "";
+
+const BASE_URL = (process.env.REACT_APP_API_BASE || defaultBaseUrl).replace(/\/$/, "");
 
 const parseResponse = async (res) => {
   const data = await res.json().catch(() => ({}));
@@ -35,6 +40,6 @@ export const getRecommendation = async (profile) => {
 };
 
 export const getApiStatus = async () => {
-  const res = await fetch(`${BASE_URL}/`);
+  const res = await fetch(`${BASE_URL}/api/health`);
   return parseResponse(res);
 };
