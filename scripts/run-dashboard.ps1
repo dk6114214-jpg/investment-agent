@@ -26,7 +26,7 @@ $backend = Start-Process -FilePath $backendPython `
   -PassThru
 
 $frontend = Start-Process -FilePath "npm.cmd" `
-  -ArgumentList "start" `
+  -ArgumentList "run", "dev" `
   -WorkingDirectory $frontendDir `
   -RedirectStandardOutput $frontendLog `
   -RedirectStandardError $frontendErr `
