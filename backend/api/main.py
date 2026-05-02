@@ -3,31 +3,31 @@ from fastapi import FastAPI, UploadFile, File
 
 app = FastAPI()
 
-# ------------------------
-# MEMORY STORAGE
-# ------------------------
 market_data = []
-research_data = []
 
-# ------------------------
+# -----------------------
 # HOME
-# ------------------------
+# -----------------------
 @app.get("/")
 def home():
     return {
         "status": "AI Investment Portfolio API is running",
-        "market_rows": len(market_data),
-        "research_rows": len(research_data)
+        "market_uploaded": len(market_data) > 0,
+        "rows": len(market_data)
     }
 
-# ------------------------
-# UPLOAD MARKET CSV
-# ------------------------
+# -----------------------
+# MARKET UPLOAD (REQUIRED)
+# -----------------------
 @app.post("/market/upload")
 async def upload_market(file: UploadFile = File(...)):
     global market_data
 
     df = pd.read_csv(file.file)
+
+    if df.empty:
+        return {"error": "CSV is empty"}
+
     market_data = df.to_dict(orient="records")
 
     return {
@@ -35,60 +35,43 @@ async def upload_market(file: UploadFile = File(...)):
         "rows": len(market_data)
     }
 
-# ------------------------
-# RECOMMENDATION ENGINE (MAIN FIX)
-# ------------------------
+# -----------------------
+# RECOMMENDATION (STRICT)
+# -----------------------
 @app.post("/recommendation")
 def recommend(data: dict):
 
+    # ❌ BLOCK IF NO FILE UPLOADED
     if len(market_data) == 0:
-        return {"error": "Please upload market CSV first"}
+        return {
+            "error": "No market data uploaded. Please upload CSV first."
+        }
 
     risk = data.get("risk_preference", "Medium")
     investment = data.get("investment_amount", 100000)
 
-    portfolio = []
-
-    # risk-based allocation logic
+    # risk weights
     if risk == "Low":
-        weights = [0.50, 0.30, 0.20]
+        weights = [0.60, 0.25, 0.15]
     elif risk == "High":
         weights = [0.40, 0.35, 0.25]
     else:
-        weights = [0.45, 0.30, 0.25]
+        weights = [0.50, 0.30, 0.20]
 
-    # select top 3-5 stocks from uploaded file
-    selected_stocks = market_data[:3]
+    portfolio = []
 
-    for i, stock in enumerate(selected_stocks):
-        weight = weights[i] if i < len(weights) else 0.1
+    stocks = market_data[:3]
 
+    for i, stock in enumerate(stocks):
         portfolio.append({
-            "symbol": stock.get("symbol"),
-            "sector": stock.get("sector", "Unknown"),
-            "price": stock.get("price", 0),
-            "allocation_percent": round(weight * 100, 2),
-            "allocated_amount": round(investment * weight, 2)
+            "symbol": stock["symbol"],
+            "sector": stock.get("sector"),
+            "allocation_%": round(weights[i] * 100, 2),
+            "amount": round(investment * weights[i], 2)
         })
 
     return {
         "risk_used": risk,
-        "total_investment": investment,
         "portfolio": portfolio,
-        "message": "Recommendation generated from uploaded CSV"
-    }
-
-# ------------------------
-# RESEARCH UPLOAD (optional)
-# ------------------------
-@app.post("/equity-reports/upload")
-async def upload_research(file: UploadFile = File(...)):
-    global research_data
-
-    df = pd.read_csv(file.file)
-    research_data = df.to_dict(orient="records")
-
-    return {
-        "message": "Research uploaded successfully",
-        "rows": len(research_data)
+        "message": "Generated ONLY from uploaded CSV"
     }
