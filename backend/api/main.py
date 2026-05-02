@@ -5,7 +5,7 @@ import pandas as pd
 app = FastAPI()
 
 # -----------------------
-# CORS (IMPORTANT for frontend)
+# CORS (Frontend connection safe)
 # -----------------------
 app.add_middleware(
     CORSMiddleware,
@@ -25,12 +25,12 @@ def home():
     }
 
 # -----------------------
-# MARKET UPLOAD
+# MARKET UPLOAD (optional storage not used)
 # -----------------------
 @app.post("/market/upload")
 async def upload_market(file: UploadFile = File(...)):
 
-    if file is None:
+    if not file:
         raise HTTPException(status_code=400, detail="File required")
 
     df = pd.read_csv(file.file)
@@ -39,7 +39,7 @@ async def upload_market(file: UploadFile = File(...)):
         raise HTTPException(status_code=400, detail="CSV is empty")
 
     return {
-        "message": "Market data uploaded successfully",
+        "message": "Market file received successfully",
         "rows": len(df)
     }
 
@@ -49,11 +49,10 @@ async def upload_market(file: UploadFile = File(...)):
 @app.post("/recommendation")
 async def recommend(file: UploadFile = File(...), data: dict = {}):
 
-    # ❌ BLOCK IF NO FILE
-    if file is None:
+    if not file:
         raise HTTPException(
             status_code=400,
-            detail="CSV file is required. Please upload market data first."
+            detail="CSV file is required"
         )
 
     df = pd.read_csv(file.file)
@@ -78,10 +77,11 @@ async def recommend(file: UploadFile = File(...), data: dict = {}):
         weights = [0.5, 0.3, 0.2]
 
     # -----------------------
-    # BUILD PORTFOLIO FROM FILE ONLY
+    # BUILD PORTFOLIO FROM CSV ONLY
     # -----------------------
-    portfolio = []
     records = df.to_dict(orient="records")
+
+    portfolio = []
 
     for i, stock in enumerate(records[:3]):
         portfolio.append({
@@ -98,17 +98,10 @@ async def recommend(file: UploadFile = File(...), data: dict = {}):
     }
 
 # -----------------------
-# RESET
+# RESET (stateless system)
 # -----------------------
 @app.get("/reset")
 def reset():
     return {
-        "message": "Stateless API - no reset needed"
+        "message": "Stateless API - no memory stored"
     }
-
-# -----------------------
-# CATCH INVALID ROUTES (IMPORTANT)
-# -----------------------
-@app.get("/{path:path}")
-def catch_all(path: str):
-    raise HTTPException(status_code=404, detail="Route not found")
