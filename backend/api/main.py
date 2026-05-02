@@ -6,6 +6,7 @@ import pandas as pd
 from fastapi import FastAPI, File, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
 
@@ -47,6 +48,10 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# Mount static files if they exist
+if FRONTEND_BUILD_DIR.exists():
+    app.mount("/static", StaticFiles(directory=FRONTEND_BUILD_DIR / "static"), name="static")
 
 market_df: pd.DataFrame | None = None
 research_df: pd.DataFrame | None = None
