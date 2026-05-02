@@ -1,0 +1,13 @@
+{
+  "name": "investment-agent",
+  "version": "1.0.0",
+  "description": "AI Investment Portfolio Advisor",
+  "type": "module",
+  "engines": {
+    "node": "18.19.0",
+    "npm": ">=9.0.0"
+  },
+  "scripts": {
+    "build": "cd frontend/web && npm ci && npm run build"
+  }
+}

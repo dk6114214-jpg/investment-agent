@@ -1,7 +1,7 @@
 const defaultBaseUrl =
   window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1"
     ? "http://127.0.0.1:8000"
-    : "";
+    : "https://web-production-fd1ce.up.railway.app";
 
 const BASE_URL = (process.env.REACT_APP_API_BASE || defaultBaseUrl).replace(/\/$/, "");
 
