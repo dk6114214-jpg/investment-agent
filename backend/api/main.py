@@ -105,9 +105,16 @@ def health():
 def home():
     index_file = FRONTEND_BUILD_DIR / "index.html"
     if index_file.is_file():
-        return FileResponse(index_file)
-
-    return _status_payload()
+        return FileResponse(index_file, media_type="text/html")
+    
+    # Fallback: check if build directory exists at all
+    if not FRONTEND_BUILD_DIR.exists():
+        raise HTTPException(
+            status_code=503,
+            detail=f"Frontend not built. Build dir not found at {FRONTEND_BUILD_DIR}"
+        )
+    
+    raise HTTPException(status_code=404, detail="index.html not found in build directory.")
 
 
 @app.post("/market/upload")
@@ -413,13 +420,19 @@ def recommend(user: InvestorProfile):
 
 @app.get("/{full_path:path}")
 def serve_frontend(full_path: str):
+    # Don't serve API routes through this handler
+    if full_path.startswith("api/") or full_path.startswith("recommendation") or full_path.startswith("market/"):
+        raise HTTPException(status_code=404, detail="API route not found")
+    
     requested_file = FRONTEND_BUILD_DIR / full_path
     index_file = FRONTEND_BUILD_DIR / "index.html"
 
+    # If exact file exists, serve it
     if requested_file.is_file():
         return FileResponse(requested_file)
 
+    # For SPA routing, fallback to index.html for non-existent paths
     if index_file.is_file():
-        return FileResponse(index_file)
+        return FileResponse(index_file, media_type="text/html")
 
     raise HTTPException(status_code=404, detail="Frontend build not found.")
