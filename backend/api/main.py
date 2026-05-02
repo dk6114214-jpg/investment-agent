@@ -1,57 +1,92 @@
-from fastapi import UploadFile, File
+from fastapi import FastAPI, UploadFile, File, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
 import pandas as pd
 
-@app.post("/recommendation")
-async def recommend(
-    file: UploadFile = File(...),
-    data: dict = {}
-):
+app = FastAPI()
 
-    # -----------------------
-    # 1. FORCE FILE CHECK
-    # -----------------------
+# -----------------------
+# CORS (IMPORTANT for frontend)
+# -----------------------
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+# -----------------------
+# HEALTH CHECK
+# -----------------------
+@app.get("/")
+def home():
+    return {
+        "status": "AI Investment Portfolio API is running"
+    }
+
+# -----------------------
+# MARKET UPLOAD
+# -----------------------
+@app.post("/market/upload")
+async def upload_market(file: UploadFile = File(...)):
+
     if file is None:
-        return {
-            "error": "CSV file is required. Upload market data first."
-        }
+        raise HTTPException(status_code=400, detail="File required")
 
-    # -----------------------
-    # 2. READ CSV
-    # -----------------------
     df = pd.read_csv(file.file)
 
     if df.empty:
-        return {
-            "error": "CSV is empty. Please upload valid market data."
-        }
+        raise HTTPException(status_code=400, detail="CSV is empty")
+
+    return {
+        "message": "Market data uploaded successfully",
+        "rows": len(df)
+    }
+
+# -----------------------
+# RECOMMENDATION (STRICT FILE BASED)
+# -----------------------
+@app.post("/recommendation")
+async def recommend(file: UploadFile = File(...), data: dict = {}):
+
+    # ❌ BLOCK IF NO FILE
+    if file is None:
+        raise HTTPException(
+            status_code=400,
+            detail="CSV file is required. Please upload market data first."
+        )
+
+    df = pd.read_csv(file.file)
+
+    if df.empty:
+        raise HTTPException(status_code=400, detail="CSV is empty")
 
     # -----------------------
-    # 3. USER INPUTS
+    # USER INPUTS
     # -----------------------
     risk = data.get("risk_preference", "Medium")
     investment = data.get("investment_amount", 100000)
 
     # -----------------------
-    # 4. RISK LOGIC
+    # RISK WEIGHTS
     # -----------------------
     if risk == "Low":
-        weights = [0.6, 0.25, 0.15]
+        weights = [0.6, 0.3, 0.1]
     elif risk == "High":
         weights = [0.4, 0.35, 0.25]
     else:
         weights = [0.5, 0.3, 0.2]
 
     # -----------------------
-    # 5. BUILD PORTFOLIO FROM FILE ONLY
+    # BUILD PORTFOLIO FROM FILE ONLY
     # -----------------------
     portfolio = []
-
     records = df.to_dict(orient="records")
 
     for i, stock in enumerate(records[:3]):
         portfolio.append({
-            "symbol": stock.get("symbol"),
-            "sector": stock.get("sector"),
+            "symbol": stock.get("symbol", "N/A"),
+            "sector": stock.get("sector", "N/A"),
             "allocation_%": round(weights[i] * 100, 2),
             "amount": round(investment * weights[i], 2)
         })
@@ -59,5 +94,21 @@ async def recommend(
     return {
         "risk_used": risk,
         "portfolio": portfolio,
-        "message": "Generated ONLY from uploaded CSV file"
+        "message": "Generated ONLY from uploaded CSV"
     }
+
+# -----------------------
+# RESET
+# -----------------------
+@app.get("/reset")
+def reset():
+    return {
+        "message": "Stateless API - no reset needed"
+    }
+
+# -----------------------
+# CATCH INVALID ROUTES (IMPORTANT)
+# -----------------------
+@app.get("/{path:path}")
+def catch_all(path: str):
+    raise HTTPException(status_code=404, detail="Route not found")
