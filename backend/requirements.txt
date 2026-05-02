@@ -1,0 +1,10 @@
+flask
+flask-cors
+fastapi
+requests
+uvicorn
+pydantic
+python-multipart
+numpy
+pandas
+scikit-learn

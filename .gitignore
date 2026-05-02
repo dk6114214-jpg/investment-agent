@@ -1,0 +1,32 @@
+venv/
+backend/venv/
+
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+.env
+.env.*
+!.env.example
+!.env.production.example
+
+node_modules/
+dist/
+build/
+.next/
+
+*.log
+*.err
+
+.DS_Store
+Thumbs.db
+.vscode/
+
+New Folder/
+New Folder (2)/
+scripts/dashboard-pids.json
+backend/api/portfolio.db

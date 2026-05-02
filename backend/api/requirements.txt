@@ -1,0 +1,6 @@
+gradio
+numpy
+pandas
+fastapi
+uvicorn
+python-multipart
