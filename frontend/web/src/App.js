@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from "react";
 import "./App.css";
-import { getApiStatus, getRecommendation, uploadCsv } from "./api";
+import { getApiStatus, getRecommendation } from "./api";
 
 const initialProfile = {
   age: 25,
@@ -18,6 +18,8 @@ function App() {
   const [loading, setLoading] = useState(false);
   const [status, setStatus] = useState("Checking API");
   const [message, setMessage] = useState("");
+  const [marketFile, setMarketFile] = useState(null);
+  const [researchFile, setResearchFile] = useState(null);
 
   useEffect(() => {
     getApiStatus()
@@ -33,25 +35,16 @@ function App() {
     });
   };
 
-  const uploadFile = async (file, endpoint, label) => {
-    if (!file) return;
-
-    setMessage(`Uploading ${label}...`);
-
-    try {
-      const data = await uploadCsv(file, endpoint);
-      setMessage(`${label} uploaded: ${data.rows} rows`);
-    } catch (err) {
-      setMessage(err.message);
-    }
-  };
-
   const handleRecommendation = async () => {
+    if (!marketFile) {
+      setMessage("Please select market CSV file first");
+      return;
+    }
     setLoading(true);
-    setMessage("");
+    setMessage("Generating recommendation...");
 
     try {
-      const data = await getRecommendation(form);
+      const data = await getRecommendation(marketFile, researchFile, form);
       setPortfolio(data.portfolio || []);
       setMethodology(data.methodology || "");
       setMessage("Recommendation ready");
@@ -81,7 +74,7 @@ function App() {
         <div className="panel">
           <span className="panel-label">Market CSV</span>
           <h2>Market Data</h2>
-          <input type="file" accept=".csv" onChange={(e) => uploadFile(e.target.files[0], "market/upload", "Market data")} />
+          <input type="file" accept=".csv" onChange={(e) => setMarketFile(e.target.files[0])} />
         </div>
 
         <div className="panel">
@@ -90,7 +83,7 @@ function App() {
           <input
             type="file"
             accept=".csv"
-            onChange={(e) => uploadFile(e.target.files[0], "equity-reports/upload", "Research data")}
+            onChange={(e) => setResearchFile(e.target.files[0])}
           />
         </div>
       </section>

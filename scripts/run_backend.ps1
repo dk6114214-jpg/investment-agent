@@ -8,4 +8,4 @@ if (-not (Test-Path $python)) {
 }
 
 Set-Location $root
-& $python -m uvicorn backend.api.main:app --host 127.0.0.1 --port 8000
+& $python -m uvicorn backend.api.main:app --host 127.0.0.1 --port 8002

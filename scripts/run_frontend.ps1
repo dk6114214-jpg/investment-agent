@@ -8,5 +8,5 @@ if (-not (Test-Path (Join-Path $frontendDir "package.json"))) {
 }
 
 Set-Location $frontendDir
-$env:REACT_APP_API_BASE = "http://127.0.0.1:8000"
+$env:REACT_APP_API_BASE = "http://127.0.0.1:8002"
 npm.cmd run dev
