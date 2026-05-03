@@ -1,4 +1,4 @@
-const BASE_URL = process.env.REACT_APP_API_BASE || "http://127.0.0.1:8002";
+const BASE_URL = process.env.REACT_APP_API_BASE || "";
 
 const makeUrl = (path) => {
   const normalizedPath = path.startsWith("/") ? path.slice(1) : path;
