@@ -1,5 +1,7 @@
 ﻿from pathlib import Path
 from typing import Literal
+import os
+import subprocess
 
 import numpy as np
 import pandas as pd
@@ -50,6 +52,22 @@ def _load_default_data() -> None:
     pass
 
 
+def _get_deployment_version() -> str:
+    env_version = os.getenv("COMMIT_SHA") or os.getenv("GIT_COMMIT")
+    if env_version:
+        return env_version
+    try:
+        version = subprocess.check_output(
+            ["git", "rev-parse", "--short", "HEAD"],
+            cwd=str(PROJECT_DIR),
+            text=True,
+            stderr=subprocess.DEVNULL,
+        ).strip()
+        return version
+    except Exception:
+        return "unknown"
+
+
 @app.on_event("startup")
 def startup() -> None:
     _load_default_data()
@@ -61,12 +79,18 @@ def _status_payload():
         "market_rows": 0,  # Stateless: data loaded per request
         "research_rows": 0,  # Stateless: data loaded per request
         "data_loaded": False,  # Always false: requires file uploads
+        "version": _get_deployment_version(),
     }
 
 
 @app.get("/api/health")
 def health():
     return _status_payload()
+
+
+@app.get("/api/version")
+def version():
+    return {"version": _get_deployment_version()}
 
 
 @app.get("/")
