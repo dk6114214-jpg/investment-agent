@@ -63,9 +63,9 @@ def startup() -> None:
 def _status_payload():
     return {
         "status": "AI Investment Portfolio API is running",
-        "market_rows": 0 if market_df is None else len(market_df),
-        "research_rows": 0 if research_df is None else len(research_df),
-        "data_loaded": market_df is not None and not market_df.empty,
+        "market_rows": 0,  # Stateless: data loaded per request
+        "research_rows": 0,  # Stateless: data loaded per request
+        "data_loaded": False,  # Always false: requires file uploads
     }
 
 

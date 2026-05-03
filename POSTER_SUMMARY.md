@@ -36,15 +36,18 @@ PORTFOLIO SCORE =
 
 ---
 
-## 📈 Key Features
+## � Live Deployment
 
-| Feature | Description |
-|---------|-------------|
-| **Data-Driven** | Uses ONLY uploaded CSVs, no stored data |
-| **Risk-Adjusted** | Sharpe ratio weighing for optimal balance |
-| **Personalized** | Adjusts for your age, income, risk preference |
-| **Diversified** | Selects top 5 stocks across sectors |
-| **Transparent** | Shows all metrics: returns, volatility, scores |
+**Railway URL**: https://web-production-fd1ce.up.railway.app
+
+**API Health Check**: ✅ Running
+- Market Data: 10 rows loaded
+- Research Data: 10 rows loaded
+
+**Tech Stack**:
+- Backend: FastAPI (Python)
+- Frontend: React.js
+- Deployment: Railway (Full-stack)
 
 ---
 
