@@ -10,7 +10,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
 BASE_DIR = Path(__file__).resolve().parent
-PROJECT_DIR = BASE_DIR.parents[1]
+PROJECT_DIR = BASE_DIR.parents[2]
 FRONTEND_BUILD_DIR = PROJECT_DIR / "frontend" / "web" / "build"
 
 app = FastAPI(title="AI Investment Portfolio Advisor")
