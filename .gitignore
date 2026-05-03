@@ -17,6 +17,8 @@ __pycache__/
 node_modules/
 dist/
 build/
+!frontend/web/build/
+!frontend/web/build/**
 .next/
 
 *.log
