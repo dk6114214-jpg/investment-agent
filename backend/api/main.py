@@ -11,8 +11,6 @@ from pydantic import BaseModel, Field
 
 BASE_DIR = Path(__file__).resolve().parent
 PROJECT_DIR = BASE_DIR.parents[1]
-DEFAULT_MARKET_FILE = BASE_DIR / "psx_market.csv"
-DEFAULT_RESEARCH_FILE = BASE_DIR / "psx_research.csv"
 FRONTEND_BUILD_DIR = PROJECT_DIR / "frontend" / "web" / "build"
 
 app = FastAPI(title="AI Investment Portfolio Advisor")
@@ -27,9 +25,6 @@ app.add_middleware(
 
 if FRONTEND_BUILD_DIR.exists():
     app.mount("/static", StaticFiles(directory=FRONTEND_BUILD_DIR / "static"), name="static")
-
-market_df: pd.DataFrame | None = None
-research_df: pd.DataFrame | None = None
 
 
 class InvestorProfile(BaseModel):
@@ -80,48 +75,6 @@ def home():
     if index_file.is_file():
         return FileResponse(index_file, media_type="text/html")
     return _status_payload()
-
-
-@app.post("/market/upload")
-def upload_market(file: UploadFile = File(...)):
-    global market_df
-
-    if not file:
-        raise HTTPException(status_code=400, detail="Market file required")
-
-    try:
-        df = pd.read_csv(file.file)
-    except Exception as exc:
-        raise HTTPException(status_code=400, detail="Unable to read market CSV") from exc
-
-    if df.empty:
-        raise HTTPException(status_code=400, detail="Market CSV is empty")
-
-    df.columns = [str(c).strip() for c in df.columns]
-    df["symbol"] = df["symbol"].astype(str).str.strip()
-    market_df = df
-    return {"status": "market uploaded", "rows": len(df)}
-
-
-@app.post("/equity-reports/upload")
-def upload_research(file: UploadFile = File(...)):
-    global research_df
-
-    if not file:
-        raise HTTPException(status_code=400, detail="Research file required")
-
-    try:
-        df = pd.read_csv(file.file)
-    except Exception as exc:
-        raise HTTPException(status_code=400, detail="Unable to read research CSV") from exc
-
-    if df.empty:
-        raise HTTPException(status_code=400, detail="Research CSV is empty")
-
-    df.columns = [str(c).strip() for c in df.columns]
-    df["symbol"] = df["symbol"].astype(str).str.strip()
-    research_df = df
-    return {"status": "research uploaded", "rows": len(df)}
 
 
 def _prepare_assets_for_recommendation(market_df: pd.DataFrame, research_df: pd.DataFrame | None) -> pd.DataFrame:
