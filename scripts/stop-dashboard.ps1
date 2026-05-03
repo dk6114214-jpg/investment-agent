@@ -8,7 +8,7 @@ if (-not (Test-Path $pidFile)) {
 }
 
 $payload = Get-Content $pidFile | ConvertFrom-Json
-$ids = @($payload.backend_pid, $payload.frontend_pid) | Where-Object { $_ }
+$ids = @($payload.backend_pid, $payload.frontend_pid) | Where-Object { $_ -and "$_" -match '^\d+$' }
 
 foreach ($id in $ids) {
   try {

@@ -1,65 +1,65 @@
-const BASE_URL = process.env.REACT_APP_API_BASE || "";
+const BASE_URL =
+  process.env.REACT_APP_API_URL?.replace(/\/$/, "") || "http://127.0.0.1:8000";
 
-const makeUrl = (path) => {
-  const normalizedPath = path.startsWith("/") ? path.slice(1) : path;
-  if (!BASE_URL) {
-    return `/${normalizedPath}`;
+// ---------- STATUS ----------
+export const getApiStatus = async () => {
+  try {
+    const res = await fetch(`${BASE_URL}/`);
+    if (!res.ok) throw new Error("API offline");
+    return await res.json();
+  } catch (e) {
+    return { status: "API offline" };
   }
-  const prefix = BASE_URL.endsWith("/") ? "" : "/";
-  return `${BASE_URL}${prefix}${normalizedPath}`;
 };
 
-// -----------------------
-// UPLOAD CSV
-// -----------------------
+const readError = async (res, fallback) => {
+  const err = await res.json().catch(() => ({}));
+  return err.detail || err.error || fallback;
+};
+
+// ---------- UPLOAD CSV ----------
 export const uploadCsv = async (file, endpoint) => {
   const formData = new FormData();
   formData.append("file", file);
 
-  const res = await fetch(makeUrl(endpoint), {
+  const res = await fetch(`${BASE_URL}/${endpoint}`, {
     method: "POST",
     body: formData,
   });
 
   if (!res.ok) {
-    const errorData = await res.json().catch(() => ({}));
-    throw new Error(errorData.detail || "Failed to upload CSV");
+    throw new Error(await readError(res, "Upload failed"));
   }
 
-  return await res.json();
+  return res.json();
 };
 
-// -----------------------
-// GET RECOMMENDATION
-// -----------------------
-export const getRecommendation = async (marketFile, researchFile, profile) => {
-  const formData = new FormData();
-  formData.append("market_file", marketFile);
-  if (researchFile) {
-    formData.append("research_file", researchFile);
-  }
-  formData.append("profile", JSON.stringify(profile));
+export const uploadMarketCsv = (file) => uploadCsv(file, "market/upload");
 
-  const res = await fetch(makeUrl("recommendation"), {
+export const uploadResearchCsv = async (file) => {
+  try {
+    return await uploadCsv(file, "equity-reports/upload");
+  } catch (err) {
+    if (err.message !== "Not Found") {
+      throw err;
+    }
+    return uploadCsv(file, "research/upload");
+  }
+};
+
+// ---------- RECOMMENDATION ----------
+export const getRecommendation = async (profile) => {
+  const res = await fetch(`${BASE_URL}/recommendation`, {
     method: "POST",
-    body: formData,
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(profile),
   });
 
   if (!res.ok) {
-    const errorData = await res.json().catch(() => ({}));
-    throw new Error(errorData.detail || "Failed to get recommendation");
+    throw new Error(await readError(res, "Recommendation failed"));
   }
 
-  return await res.json();
-};
-
-// -----------------------
-// API STATUS
-// -----------------------
-export const getApiStatus = async () => {
-  const res = await fetch(makeUrl("api/health"));
-  if (!res.ok) {
-    throw new Error("API health check failed");
-  }
-  return await res.json();
+  return res.json();
 };

@@ -1,11 +1,12 @@
-﻿from pathlib import Path
+from pathlib import Path
 from typing import Literal
+import json
 import os
 import subprocess
 
 import numpy as np
 import pandas as pd
-from fastapi import FastAPI, File, Form, HTTPException, UploadFile
+from fastapi import FastAPI, File, HTTPException, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
@@ -15,11 +16,27 @@ BASE_DIR = Path(__file__).resolve().parent
 PROJECT_DIR = BASE_DIR.parents[1]
 FRONTEND_BUILD_DIR = PROJECT_DIR / "frontend" / "web" / "build"
 
-app = FastAPI(title="AI Investment Portfolio Advisor")
+app = FastAPI(title="PSX Portfolio Optimizer")
+
+market_df_cache: pd.DataFrame | None = None
+research_df_cache: pd.DataFrame | None = None
+
+frontend_origins = [
+    origin.strip()
+    for origin in os.getenv("FRONTEND_ORIGINS", "").split(",")
+    if origin.strip()
+]
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=[
+        "http://localhost:3000",
+        "http://127.0.0.1:3000",
+        "http://localhost:3001",
+        "http://127.0.0.1:3001",
+        *frontend_origins,
+    ],
+    allow_origin_regex=r"https://.*\.(onrender\.com|vercel\.app)$",
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -38,6 +55,31 @@ class InvestorProfile(BaseModel):
     time_period_years: int = Field(default=5, ge=1, le=50)
 
 
+def _get_deployment_version() -> str:
+    env_version = os.getenv("COMMIT_SHA") or os.getenv("GIT_COMMIT")
+    if env_version:
+        return env_version
+    try:
+        return subprocess.check_output(
+            ["git", "rev-parse", "--short", "HEAD"],
+            cwd=str(PROJECT_DIR),
+            text=True,
+            stderr=subprocess.DEVNULL,
+        ).strip()
+    except Exception:
+        return "unknown"
+
+
+def _status_payload() -> dict:
+    return {
+        "status": "AI Investment Portfolio API is running",
+        "market_rows": 0 if market_df_cache is None else len(market_df_cache),
+        "research_rows": 0 if research_df_cache is None else len(research_df_cache),
+        "data_loaded": market_df_cache is not None,
+        "version": _get_deployment_version(),
+    }
+
+
 def _normalize(series: pd.Series) -> pd.Series:
     values = pd.to_numeric(series, errors="coerce")
     if values.empty or values.nunique(dropna=True) <= 1:
@@ -46,89 +88,61 @@ def _normalize(series: pd.Series) -> pd.Series:
     return scaled.fillna(0.5).clip(0, 1)
 
 
-def _load_default_data() -> None:
-    # Removed: No longer loading default CSV data on startup
-    # Users must upload market and research data first
-    pass
+def _normalize_symbol(value) -> str:
+    return str(value or "").split(".")[0].strip().upper()
 
 
-def _get_deployment_version() -> str:
-    env_version = os.getenv("COMMIT_SHA") or os.getenv("GIT_COMMIT")
-    if env_version:
-        return env_version
+def _clean_columns(df: pd.DataFrame) -> pd.DataFrame:
+    cleaned = df.copy()
+    cleaned.columns = [str(col).strip() for col in cleaned.columns]
+    if "symbol" not in cleaned.columns:
+        raise HTTPException(status_code=400, detail="CSV must include a symbol column")
+    cleaned["symbol"] = cleaned["symbol"].map(_normalize_symbol)
+    return cleaned
+
+
+async def _read_upload_csv(file: UploadFile, label: str) -> pd.DataFrame:
     try:
-        version = subprocess.check_output(
-            ["git", "rev-parse", "--short", "HEAD"],
-            cwd=str(PROJECT_DIR),
-            text=True,
-            stderr=subprocess.DEVNULL,
-        ).strip()
-        return version
-    except Exception:
-        return "unknown"
+        df = pd.read_csv(file.file)
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=f"Unable to read {label} CSV") from exc
 
+    if df.empty:
+        raise HTTPException(status_code=400, detail=f"{label.title()} CSV is empty")
 
-@app.on_event("startup")
-def startup() -> None:
-    _load_default_data()
-
-
-def _status_payload():
-    return {
-        "status": "AI Investment Portfolio API is running",
-        "market_rows": 0,  # Stateless: data loaded per request
-        "research_rows": 0,  # Stateless: data loaded per request
-        "data_loaded": False,  # Always false: requires file uploads
-        "version": _get_deployment_version(),
-    }
-
-
-@app.get("/api/health")
-def health():
-    return _status_payload()
-
-
-@app.get("/api/version")
-def version():
-    return {"version": _get_deployment_version()}
-
-
-@app.get("/")
-def home():
-    index_file = FRONTEND_BUILD_DIR / "index.html"
-    if index_file.is_file():
-        return FileResponse(index_file, media_type="text/html")
-    return _status_payload()
+    return _clean_columns(df)
 
 
 def _prepare_assets_for_recommendation(market_df: pd.DataFrame, research_df: pd.DataFrame | None) -> pd.DataFrame:
     if market_df is None or market_df.empty:
-        raise HTTPException(status_code=503, detail="No market data available")
+        raise HTTPException(status_code=400, detail="No market data available")
 
     assets = market_df.copy()
-    assets["symbol"] = assets["symbol"].astype(str).str.strip()
-    if "sector" in assets.columns:
-        assets["sector"] = assets["sector"].astype(str).fillna("Unknown")
-    else:
-        assets["sector"] = "Unknown"
+    assets["sector"] = assets["sector"].astype(str).fillna("Unknown") if "sector" in assets.columns else "Unknown"
     assets["price"] = pd.to_numeric(assets.get("price", pd.Series(dtype=float)), errors="coerce").fillna(0.0)
     assets["volume"] = pd.to_numeric(assets.get("volume", pd.Series(dtype=float)), errors="coerce").fillna(0.0)
 
-    research = None
     if research_df is not None and not research_df.empty and "symbol" in research_df.columns:
         research = research_df.copy()
-        research["symbol"] = research["symbol"].astype(str).str.strip()
         score_col = next((col for col in research.columns if "score" in col.lower()), None)
         confidence_col = next((col for col in research.columns if "confidence" in col.lower()), None)
+        keep_cols = ["symbol"]
         if score_col:
             research[score_col] = pd.to_numeric(research[score_col], errors="coerce")
+            keep_cols.append(score_col)
         if confidence_col:
             research[confidence_col] = pd.to_numeric(research[confidence_col], errors="coerce")
-        research = research[["symbol", score_col, confidence_col]].drop_duplicates(subset=["symbol"])
-        assets = assets.merge(research, on="symbol", how="left")
+            keep_cols.append(confidence_col)
+        if len(keep_cols) > 1:
+            research = research[keep_cols].drop_duplicates(subset=["symbol"])
+            assets = assets.merge(research, on="symbol", how="left")
 
-    assets["fundamental_score"] = _normalize(assets.get("FA Score", assets.get("fundamental_score", pd.Series(0.5, index=assets.index))))
-    assets["confidence_score"] = _normalize(assets.get("Confidence", assets.get("confidence_score", pd.Series(0.5, index=assets.index))))
+    assets["fundamental_score"] = _normalize(
+        assets.get("FA Score", assets.get("fundamental_score", pd.Series(0.5, index=assets.index)))
+    )
+    assets["confidence_score"] = _normalize(
+        assets.get("Confidence", assets.get("confidence_score", pd.Series(0.5, index=assets.index)))
+    )
     assets["liquidity_score"] = _normalize(assets["volume"])
     assets["price_score"] = _normalize(assets["price"])
 
@@ -148,7 +162,6 @@ def _prepare_assets_for_recommendation(market_df: pd.DataFrame, research_df: pd.
 
     assets["sharpe_ratio"] = assets["expected_return"] / assets["volatility"]
     assets["sharpe_score"] = _normalize(assets["sharpe_ratio"])
-
     assets["return_score"] = _normalize(assets["expected_return"])
     assets["risk_score"] = 1 - _normalize(assets["volatility"])
 
@@ -163,27 +176,36 @@ def _prepare_assets_for_recommendation(market_df: pd.DataFrame, research_df: pd.
     return assets
 
 
-def _normalize_weights(values: np.ndarray, max_weight: float = 0.34) -> np.ndarray:
-    weights = values.copy()
-    weights = np.maximum(weights, 0)
+def _normalize_weights(values: np.ndarray, max_weight: float) -> np.ndarray:
+    weights = np.maximum(values.copy(), 0)
     if weights.sum() <= 0:
         weights = np.ones_like(weights)
     weights = weights / weights.sum()
     weights = np.minimum(weights, max_weight)
-    weights = weights / weights.sum()
-    return weights
+    return weights / weights.sum()
 
 
-def _format_portfolio(assets: pd.DataFrame, weights: np.ndarray) -> list[dict]:
+def _strategy_reason(risk: str) -> str:
+    if risk == "Low":
+        return "Capital preservation with liquidity and fundamentals"
+    if risk == "High":
+        return "Growth-seeking with a controlled risk penalty"
+    return "Balanced return, risk, liquidity, and fundamentals"
+
+
+def _format_portfolio(assets: pd.DataFrame, weights: np.ndarray, profile: InvestorProfile) -> list[dict]:
     assets = assets.copy()
     assets["allocation_pct"] = np.round(weights * 100, 2)
     portfolio = []
+
     for _, row in assets.iterrows():
+        allocation = float(row["allocation_pct"])
         portfolio.append(
             {
                 "symbol": row["symbol"],
                 "sector": row["sector"],
-                "allocation_pct": float(row["allocation_pct"]),
+                "allocation_pct": allocation,
+                "amount": round(profile.investment_amount * (allocation / 100), 2),
                 "score": round(float(row["raw_score"] * 100), 2),
                 "expected_return": round(float(row["expected_return"] * 100), 2),
                 "volatility": round(float(row["volatility"] * 100), 2),
@@ -192,58 +214,27 @@ def _format_portfolio(assets: pd.DataFrame, weights: np.ndarray) -> list[dict]:
                 "liquidity_score": round(float(row["liquidity_score"] * 100), 1),
                 "confidence_score": round(float(row["confidence_score"] * 100), 1),
                 "reasons": [
-                    "Risk-adjusted scoring with Sharpe ratio",
-                    "Sector diversification considered",
-                    "Data-driven allocation",
+                    _strategy_reason(profile.risk_preference),
+                    f"Expected return: {float(row['expected_return'] * 100):.2f}%",
+                    f"Volatility estimate: {float(row['volatility'] * 100):.2f}%",
+                    f"FA score: {float(row['fundamental_score'] * 100):.1f}%",
+                    f"Liquidity score: {float(row['liquidity_score'] * 100):.1f}%",
+                    f"Risk profile: {profile.risk_preference}",
                 ],
             }
         )
     return portfolio
 
 
-@app.post("/recommendation")
-def recommend(
-    market_file: UploadFile = File(...),
-    research_file: UploadFile = File(None),
-    profile: str = Form(...),
-):
-    profile_obj = InvestorProfile.parse_raw(profile)
-    # Load market data from uploaded file
-    try:
-        market_df = pd.read_csv(market_file.file)
-    except Exception as exc:
-        raise HTTPException(status_code=400, detail="Unable to read market CSV") from exc
-
-    if market_df.empty:
-        raise HTTPException(status_code=400, detail="Market CSV is empty")
-
-    market_df.columns = [str(c).strip() for c in market_df.columns]
-    market_df["symbol"] = market_df["symbol"].astype(str).str.strip()
-
-    # Load research data if provided
-    research_df = None
-    if research_file:
-        try:
-            research_df = pd.read_csv(research_file.file)
-        except Exception as exc:
-            raise HTTPException(status_code=400, detail="Unable to read research CSV") from exc
-
-        if research_df.empty:
-            research_df = None
-        else:
-            research_df.columns = [str(c).strip() for c in research_df.columns]
-            research_df["symbol"] = research_df["symbol"].astype(str).str.strip()
-
-    # Now process with the uploaded data
+def _recommend_from_data(market_df: pd.DataFrame, research_df: pd.DataFrame | None, profile: InvestorProfile) -> dict:
     assets = _prepare_assets_for_recommendation(market_df, research_df)
-
     if assets.empty:
-        raise HTTPException(status_code=503, detail="No asset data available")
+        raise HTTPException(status_code=400, detail="No asset data available")
 
-    if profile_obj.risk_preference == "Low":
+    if profile.risk_preference == "Low":
         scores = assets["raw_score"] * 0.8 + assets["risk_score"] * 0.25
         max_weight = 0.28
-    elif profile_obj.risk_preference == "High":
+    elif profile.risk_preference == "High":
         scores = assets["raw_score"] * 1.05 + assets["return_score"] * 0.3
         max_weight = 0.42
     else:
@@ -256,20 +247,104 @@ def recommend(
 
     selected = assets.head(5)
     weights = _normalize_weights(selected["investor_score"].values, max_weight=max_weight)
-    portfolio = _format_portfolio(selected, weights)
+    portfolio = _format_portfolio(selected, weights, profile)
 
     return {
-        "model": "DATA_DRIVEN_PORTFOLIO_V1",
-        "risk_preference": profile_obj.risk_preference,
-        "investment_amount": profile_obj.investment_amount,
+        "model": "DATA_DRIVEN_PORTFOLIO_V2",
+        "risk_preference": profile.risk_preference,
+        "investment_amount": profile.investment_amount,
         "portfolio": portfolio,
+        "metrics": {
+            "total_symbols": int(assets["symbol"].nunique()),
+            "recommended_symbols": len(portfolio),
+            "research_coverage": "Uploaded" if research_df is not None else "--",
+            "average_score": round(sum(item["score"] for item in portfolio) / len(portfolio), 2),
+        },
         "methodology": (
-            "Advanced risk-adjusted portfolio using Sharpe ratio for risk-return efficiency. "
-            "Incorporates expected return, volatility, fundamental analysis, confidence scores, and liquidity. "
-            "Applies sector diversification and risk-based weighting. "
-            "Investor age, income, and risk preference adjust allocations for optimal balance."
+            "Scores each stock using expected return, volatility risk, fundamental score, "
+            "liquidity, confidence, and sector diversification. Investor age, horizon, "
+            "and risk preference change the return-vs-risk weights."
         ),
     }
+
+
+@app.get("/api/health")
+def health():
+    return {"status": "ok", **_status_payload()}
+
+
+@app.get("/api/version")
+def version():
+    return {"version": _get_deployment_version()}
+
+
+@app.get("/")
+def home():
+    index_file = FRONTEND_BUILD_DIR / "index.html"
+    if index_file.is_file():
+        return FileResponse(index_file, media_type="text/html")
+    return _status_payload()
+
+
+@app.post("/market/upload")
+async def upload_market(file: UploadFile = File(...)):
+    global market_df_cache
+    market_df_cache = await _read_upload_csv(file, "market")
+    return {"status": "market uploaded", "rows": len(market_df_cache)}
+
+
+async def _upload_research_file(file: UploadFile):
+    global research_df_cache
+    research_df_cache = await _read_upload_csv(file, "research")
+    return {"status": "research uploaded", "rows": len(research_df_cache)}
+
+
+@app.post("/research/upload")
+async def upload_research(file: UploadFile = File(...)):
+    return await _upload_research_file(file)
+
+
+@app.post("/equity-reports/upload")
+async def upload_equity_reports(file: UploadFile = File(...)):
+    return await _upload_research_file(file)
+
+
+@app.post("/recommendation")
+async def recommend(request: Request):
+    global market_df_cache, research_df_cache
+
+    content_type = request.headers.get("content-type", "")
+    market_df = market_df_cache
+    research_df = research_df_cache
+
+    if "multipart/form-data" in content_type:
+        form = await request.form()
+        profile_raw = form.get("profile")
+        profile_data = json.loads(profile_raw) if isinstance(profile_raw, str) else {}
+
+        market_file = form.get("market_file")
+        if isinstance(market_file, UploadFile):
+            market_df = await _read_upload_csv(market_file, "market")
+
+        research_file = form.get("research_file")
+        if isinstance(research_file, UploadFile):
+            research_df = await _read_upload_csv(research_file, "research")
+    else:
+        profile_data = await request.json()
+
+    if market_df is None:
+        raise HTTPException(status_code=400, detail="No market data uploaded")
+
+    profile = InvestorProfile(**profile_data)
+    return _recommend_from_data(market_df, research_df, profile)
+
+
+@app.get("/reset")
+def reset():
+    global market_df_cache, research_df_cache
+    market_df_cache = None
+    research_df_cache = None
+    return {"message": "reset done"}
 
 
 @app.get("/{full_path:path}")
